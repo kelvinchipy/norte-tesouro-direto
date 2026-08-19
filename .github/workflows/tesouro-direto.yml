@@ -1,0 +1,33 @@
+name: Atualizar cotações Tesouro Direto
+
+on:
+  schedule:
+    # 21:00 UTC = 18:00 em America/Sao_Paulo (UTC-3), dias úteis, após o fechamento
+    - cron: '0 21 * * 1-5'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  atualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Baixar e processar o CSV oficial do Tesouro Transparente
+        run: python3 scripts/atualizar_tesouro.py
+
+      - name: Commit e push do JSON atualizado
+        run: |
+          git config user.name "norte-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add tesouro-cotacoes.json
+          git diff --cached --quiet && echo "Sem mudanças hoje, nada a commitar." || git commit -m "Atualiza cotações Tesouro Direto"
+          git push
+
+      - name: Purgar cache do jsDelivr (garante que o Norte veja o dado novo na hora)
+        if: success()
+        run: |
+          curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@main/tesouro-cotacoes.json" || true
