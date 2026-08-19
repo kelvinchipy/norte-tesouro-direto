@@ -1,4 +1,3 @@
-Atualizar tesouro · PY
 """
 Baixa o CSV oficial de taxas/preços do Tesouro Direto (Tesouro Transparente),
 extrai a Data Base mais recente (e a anterior, para calcular variação %% dia a dia)
@@ -10,6 +9,7 @@ import csv
 import json
 import sys
 import urllib.request
+import urllib.error
 from collections import defaultdict
 from datetime import datetime, timezone
  
@@ -40,28 +40,62 @@ def chave_titulo(row):
     return (row[0].strip(), row[1].strip())  # (Tipo Titulo, Data Vencimento)
  
  
+def baixar_csv():
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/csv,application/csv,text/plain,*/*",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+    }
+    req = urllib.request.Request(CSV_URL, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            status = getattr(resp, "status", resp.getcode())
+            content_type = resp.headers.get("Content-Type", "?")
+            data = resp.read()
+    except urllib.error.HTTPError as e:
+        print(f"ERRO HTTP {e.code} ao baixar o CSV: {e.reason}", file=sys.stderr)
+        corpo = e.read()
+        print("Primeiros 500 bytes da resposta de erro:", file=sys.stderr)
+        print(corpo[:500], file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"ERRO DE REDE ao baixar o CSV: {e.reason}", file=sys.stderr)
+        sys.exit(1)
+ 
+    print(f"Download OK — status {status}, Content-Type: {content_type}, tamanho: {len(data)} bytes")
+    return data.decode("utf-8", errors="replace")
+ 
+ 
 def main():
-    req = urllib.request.Request(
-        CSV_URL, headers={"User-Agent": "Mozilla/5.0 (compatible; NorteBot/1.0)"}
-    )
-    with urllib.request.urlopen(req, timeout=180) as resp:
-        raw = resp.read().decode("utf-8", errors="replace")
+    raw = baixar_csv()
  
     reader = csv.reader(raw.splitlines(), delimiter=";")
-    next(reader)  # cabeçalho
+    cabecalho = next(reader, None)
+    print(f"Cabeçalho lido: {cabecalho}")
  
     por_data = defaultdict(list)
+    linhas_total = 0
+    linhas_com_erro_data = 0
     for row in reader:
+        linhas_total += 1
         if len(row) < 8:
             continue
         try:
             data_base = parse_date_br(row[2])
         except ValueError:
+            linhas_com_erro_data += 1
             continue
         por_data[data_base].append(row)
  
+    print(f"Linhas de dados processadas: {linhas_total} | com data inválida: {linhas_com_erro_data} | datas distintas encontradas: {len(por_data)}")
+ 
     if not por_data:
         print("Nenhum dado válido encontrado no CSV — abortando sem sobrescrever o JSON.", file=sys.stderr)
+        print("Primeiros 500 caracteres do conteúdo baixado (para diagnóstico):", file=sys.stderr)
+        print(raw[:500], file=sys.stderr)
         sys.exit(1)
  
     datas_ordenadas = sorted(por_data.keys())
@@ -114,3 +148,8 @@ def main():
  
 if __name__ == "__main__":
     main()
+ 
+
+
+tesouro-direto-workflow_2.yml baixado Mostrar no Explorer
+
